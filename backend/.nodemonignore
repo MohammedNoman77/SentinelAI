@@ -1,0 +1,5 @@
+*.html
+*.pdf
+*.docx
+test_*
+*.log
