@@ -1,26 +1,8 @@
-// ============================================
-// SentinelAI - Agent Routes
-// ============================================
-
-import express from 'express';
-import {
-  registerDevice,
-  getDevices,
-  heartbeat,
-  ingestEvents,
-  deleteDevice,
-} from '../controllers/agentController.js';
-import { protect } from '../middleware/authMiddleware.js';
-
-const router = express.Router();
-
-// مسارات المستخدم (تتطلب تسجيل دخول)
-router.post('/register', protect, registerDevice);
-router.get('/devices', protect, getDevices);
-router.delete('/devices/:id', protect, deleteDevice);
-
-// مسارات الـ Agent (تتطلب API Key)
-router.post('/heartbeat', heartbeat);
-router.post('/events', ingestEvents);
-
+import { Router } from 'express';
+import { enroll, heartbeat } from '../controllers/agentController.js';
+import { authenticateAgent } from '../middleware/authMiddleware.js';
+import { rateLimit } from '../middleware/rateLimit.js';
+const router = Router();
+router.post('/enroll', rateLimit({ windowMs: 15 * 60_000, max: 10 }), enroll);
+router.post('/heartbeat', rateLimit({ windowMs: 60_000, max: 120, key: (req) => `agent:${req.get('x-api-key') || req.ip}` }), authenticateAgent, heartbeat);
 export default router;
