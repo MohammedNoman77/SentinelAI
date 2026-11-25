@@ -21,6 +21,7 @@ import monitoringRoutes from './routes/monitoringRoutes.js';
 import alertsRoutes from './routes/alertsRoutes.js';
 import usersRoutes from './routes/usersRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
+import eventsRoutes from './routes/eventsRoutes.js';
 const app = express();
 
 app.use(helmet());
@@ -79,6 +80,7 @@ app.use('/api/monitoring', monitoringRoutes);
 app.use('/api/alerts', alertsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/agent', agentRoutes);
+app.use('/api/events', eventsRoutes);
 
 // 404
 app.use((req, res) => {

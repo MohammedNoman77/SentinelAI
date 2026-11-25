@@ -3,160 +3,432 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-enum DeviceStatus { ONLINE OFFLINE AT_RISK }
-enum DeviceType { LAPTOP DESKTOP PHONE TABLET ROUTER OTHER }
-enum EventCategory { PROCESS NETWORK FILE AUTHENTICATION USB SYSTEM BROWSER }
-enum Severity { LOW MEDIUM HIGH CRITICAL }
-enum AnomalyStatus { NEW CONFIRMED FALSE_POSITIVE }
-enum AlertStatus { NEW ACKNOWLEDGED RESOLVED DISMISSED }
+enum Role {
+  PERSONAL_USER
+  EMPLOYEE
+  SOC_ANALYST
+  INCIDENT_RESPONDER
+  SYSTEM_ADMIN
+}
+
+enum SourceType {
+  EDR
+  SIEM
+  NETWORK
+  IDENTITY
+  CLOUD
+  EMAIL
+  ENDPOINT
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum EventStatus {
+  NEW
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+  FALSE_POSITIVE
+}
+
+enum IncidentStatus {
+  OPEN
+  IN_PROGRESS
+  INVESTIGATING
+  CONTAINMENT
+  RESOLVED
+  CLOSED
+}
+
+enum DeviceType {
+  LAPTOP
+  DESKTOP
+  PHONE
+  TABLET
+  ROUTER
+  OTHER
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  AT_RISK
+}
+
+enum EventCategory {
+  PROCESS
+  NETWORK
+  FILE
+  AUTHENTICATION
+  USB
+  SYSTEM
+  BROWSER
+}
+
+enum AnomalyStatus {
+  NEW
+  CONFIRMED
+  FALSE_POSITIVE
+  REVIEWED
+}
+
+enum AlertStatus {
+  NEW
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
 
 model User {
-  id String @id @default(cuid())
-  email String @unique
-  password String
-  name String
-  enrollToken String @unique @map("enroll_token")
-  isActive Boolean @default(true) @map("is_active")
-  lastLogin DateTime? @map("last_login")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  devices Device[]
-  events SecurityEvent[]
-  anomalies Anomaly[]
-  alerts Alert[]
-  recommendations Recommendation[]
+  id                  String             @id @default(cuid())
+  email               String             @unique
+  password            String
+  name                String
+  nameAr              String?
+  role                Role               @default(EMPLOYEE)
+  avatar              String?
+  phone               String?
+  isActive            Boolean            @default(true)
+  lastLogin           DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  assignedIncidents   Incident[]         @relation("IncidentAssignee")
+  investigations      Investigation[]    @relation("Investigator")
+  generatedReports    Report[]           @relation("ReportGenerator")
+  auditLogs           AuditLog[]
+  devices             Device[]
+  behaviorBaselines   BehaviorBaseline[]
+  agentEvents         SecurityEvent[]    @relation("EventUser")
+  anomalies           Anomaly[]
+  agentAlerts         Alert[]            @relation("AlertUser")
+  recommendations     Recommendation[]
+
   @@map("users")
 }
 
+model DataSource {
+  id          String          @id @default(cuid())
+  name        String
+  type        SourceType
+  description String?
+  isActive    Boolean         @default(true)
+  lastSync    DateTime?
+  createdAt   DateTime        @default(now())
+  events      SecurityEvent[]
+
+  @@map("data_sources")
+}
+
+model SecurityEvent {
+  id              String         @id @default(cuid())
+  eventType       String
+  timestamp       DateTime       @default(now())
+  severity        Severity       @default(LOW)
+  status          EventStatus    @default(NEW)
+  category        EventCategory?
+  title           String
+  description     String?
+  rawData         Json?
+  metadata        Json?
+  sourceIp        String?
+  destinationIp   String?
+  destinationPort Int?
+  userEmail       String?
+  userAccount     String?
+  processName     String?
+  processPath     String?
+  processId       Int?
+  fileName        String?
+  sourceId        String?
+  source          DataSource?    @relation(fields: [sourceId], references: [id])
+  deviceId        String?
+  device          Device?        @relation(fields: [deviceId], references: [id])
+  userId          String?
+  user            User?          @relation("EventUser", fields: [userId], references: [id])
+  alerts          Alert[]        @relation("AlertEvent")
+  anomalies       Anomaly[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([timestamp])
+  @@index([severity])
+  @@index([status])
+  @@index([userId])
+  @@index([deviceId])
+  @@index([category])
+  @@map("security_events")
+}
+
+model Incident {
+  id             String          @id @default(cuid())
+  incidentId     String          @unique
+  title          String
+  description    String?
+  severity       Severity
+  status         IncidentStatus  @default(OPEN)
+  sourceType     SourceType?
+  assignedTo     String?
+  assignee       User?           @relation("IncidentAssignee", fields: [assignedTo], references: [id])
+  affectedDevice String?
+  affectedUser   String?
+  maliciousIp    String?
+  fileHash       String?
+  threatType     String?
+  mitreTactic    String?
+  mitreTechnique String?
+  detectedAt     DateTime        @default(now())
+  resolvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  alerts         Alert[]
+  investigations Investigation[]
+  evidence       Evidence[]
+  timeline       TimelineEntry[]
+
+  @@index([status])
+  @@index([severity])
+  @@map("incidents")
+}
+
+model Alert {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  severity    Severity
+  status      AlertStatus    @default(NEW)
+  category    String?
+  ruleId      String?
+  eventId     String?
+  event       SecurityEvent? @relation("AlertEvent", fields: [eventId], references: [id])
+  incidentId  String?
+  incident    Incident?      @relation(fields: [incidentId], references: [id])
+  deviceId    String?
+  device      Device?        @relation(fields: [deviceId], references: [id])
+  anomalyId   String?
+  anomaly     Anomaly?       @relation(fields: [anomalyId], references: [id])
+  userId      String?
+  user        User?          @relation("AlertUser", fields: [userId], references: [id])
+  resolvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([severity])
+  @@index([status])
+  @@index([userId])
+  @@map("alerts")
+}
+
+model Investigation {
+  id             String   @id @default(cuid())
+  incidentId     String
+  incident       Incident @relation(fields: [incidentId], references: [id])
+  investigatorId String?
+  investigator   User?    @relation("Investigator", fields: [investigatorId], references: [id])
+  status         String   @default("in_progress")
+  findings       String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("investigations")
+}
+
+model Evidence {
+  id          String   @id @default(cuid())
+  incidentId  String
+  incident    Incident @relation(fields: [incidentId], references: [id])
+  type        String
+  description String?
+  data        Json?
+  collectedAt DateTime @default(now())
+
+  @@map("evidence")
+}
+
+model TimelineEntry {
+  id          String   @id @default(cuid())
+  incidentId  String
+  incident    Incident @relation(fields: [incidentId], references: [id])
+  time        DateTime @default(now())
+  title       String
+  description String?
+  category    String
+
+  @@map("timeline_entries")
+}
+
+model Threat {
+  id             String   @id @default(cuid())
+  name           String
+  type           String
+  severity       Severity
+  source         String?
+  status         String   @default("detected")
+  mitreTactic    String?
+  mitreTechnique String?
+  description    String?
+  detectedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([severity])
+  @@map("threats")
+}
+
+model Endpoint {
+  id           String   @id @default(cuid())
+  endpointId   String   @unique
+  hostname     String
+  os           String?
+  ipAddress    String?
+  user         String?
+  status       String   @default("Protected")
+  threatsCount Int      @default(0)
+  agentVersion String?
+  lastSeen     DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+  @@map("endpoints")
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  name        String
+  type        String
+  status      String   @default("completed")
+  generatedBy String?
+  generator   User?    @relation("ReportGenerator", fields: [generatedBy], references: [id])
+  filePath    String?
+  fileSize    Int?
+  period      String?
+  createdAt   DateTime @default(now())
+
+  @@map("reports")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  resource  String?
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 model Device {
-  id String @id @default(cuid())
-  userId String @map("user_id")
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  hostname String
-  name String
-  type DeviceType @default(DESKTOP)
-  os String?
-  osVersion String? @map("os_version")
-  architecture String?
-  ipAddress String? @map("ip_address")
-  macAddress String? @map("mac_address")
-  cpuCores Int? @map("cpu_cores")
-  totalRam BigInt? @map("total_ram")
-  diskSize BigInt? @map("disk_size")
-  username String?
-  status DeviceStatus @default(OFFLINE)
-  riskScore Int @default(0) @map("risk_score")
-  apiKeyHash String @unique @map("api_key_hash")
-  agentVersion String? @map("agent_version")
-  lastSeen DateTime? @map("last_seen")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  events SecurityEvent[]
-  anomalies Anomaly[]
-  alerts Alert[]
-  recommendations Recommendation[]
-  baseline Baseline?
-  @@unique([userId, hostname])
+  id                String             @id @default(cuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  type              DeviceType         @default(DESKTOP)
+  os                String?
+  osVersion         String?
+  hostname          String?
+  ipAddress         String?
+  macAddress        String?
+  status            DeviceStatus       @default(OFFLINE)
+  riskScore         Int                @default(0)
+  apiKey            String             @unique
+  agentInstalled    Boolean            @default(false)
+  agentVersion      String?
+  lastHeartbeat     DateTime?
+  lastSeen          DateTime           @default(now())
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  events            SecurityEvent[]
+  behaviorBaselines BehaviorBaseline[]
+  anomalies         Anomaly[]
+  alerts            Alert[]
+  recommendations   Recommendation[]
+
   @@index([userId])
   @@map("devices")
 }
 
-model SecurityEvent {
-  id String @id @default(cuid())
-  userId String @map("user_id")
-  deviceId String @map("device_id")
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  category EventCategory
-  eventType String @map("event_type")
-  severity Severity @default(LOW)
-  title String
-  description String?
-  processName String? @map("process_name")
-  processId Int? @map("process_id")
-  sourceIp String? @map("source_ip")
-  destinationIp String? @map("destination_ip")
-  destinationPort Int? @map("destination_port")
-  metadata Json?
-  timestamp DateTime
-  createdAt DateTime @default(now()) @map("created_at")
-  anomalies Anomaly[]
-  @@index([deviceId, timestamp])
-  @@index([deviceId, eventType, timestamp])
-  @@index([userId, timestamp])
-  @@map("security_events")
+model BehaviorBaseline {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  metric      String
+  avgValue    Float
+  minValue    Float?
+  maxValue    Float?
+  stdDev      Float    @default(0)
+  sampleCount Int      @default(0)
+  timeWindow  String   @default("24h")
+  lastUpdated DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([deviceId, metric])
+  @@map("behavior_baselines")
 }
 
 model Anomaly {
-  id String @id @default(cuid())
-  userId String @map("user_id")
-  deviceId String @map("device_id")
-  eventId String? @map("event_id")
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  event SecurityEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  title String
-  description String
-  severity Severity
-  score Int
-  status AnomalyStatus @default(NEW)
-  metric String
-  indicator String
-  detectedAt DateTime @default(now()) @map("detected_at")
-  alerts Alert[]
-  @@index([userId, detectedAt])
-  @@index([deviceId, metric, indicator, detectedAt])
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId      String
+  device        Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  eventId       String?
+  event         SecurityEvent? @relation(fields: [eventId], references: [id])
+  title         String
+  description   String
+  score         Int            @default(0)
+  severity      Severity       @default(MEDIUM)
+  metric        String?
+  expectedValue Float?
+  actualValue   Float?
+  deviation     Float?
+  context       Json?
+  status        AnomalyStatus  @default(NEW)
+  detectedAt    DateTime       @default(now())
+  createdAt     DateTime       @default(now())
+  alerts        Alert[]
+
+  @@index([userId])
+  @@index([deviceId])
+  @@index([status])
   @@map("anomalies")
 }
 
-model Alert {
-  id String @id @default(cuid())
-  userId String @map("user_id")
-  deviceId String @map("device_id")
-  anomalyId String? @map("anomaly_id")
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  anomaly Anomaly? @relation(fields: [anomalyId], references: [id], onDelete: SetNull)
-  title String
-  description String
-  severity Severity
-  status AlertStatus @default(NEW)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  @@index([userId, status])
-  @@map("alerts")
-}
-
 model Recommendation {
-  id String @id @default(cuid())
-  userId String @map("user_id")
-  deviceId String? @map("device_id")
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  title String
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId    String?
+  device      Device?   @relation(fields: [deviceId], references: [id])
+  title       String
   description String
-  priority Severity @default(MEDIUM)
-  isCompleted Boolean @default(false) @map("is_completed")
-  isDismissed Boolean @default(false) @map("is_dismissed")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  priority    Severity  @default(MEDIUM)
+  category    String?
+  isCompleted Boolean   @default(false)
+  isDismissed Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
   @@index([userId])
   @@map("recommendations")
-}
-
-model Baseline {
-  id String @id @default(cuid())
-  deviceId String @unique @map("device_id")
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  samples Int @default(0)
-  mean Float @default(0)
-  m2 Float @default(0)
-  hourCounts Json @map("hour_counts")
-  lastSampleAt DateTime? @map("last_sample_at")
-  @@map("baselines")
 }
